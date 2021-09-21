@@ -1,7 +1,5 @@
 package main
 
-//https://www.cnblogs.com/sam-uncle/archive/2019/05/27/10934064.html 参考博客内容
-
 import (
 	"fmt"
 	"io"
@@ -14,7 +12,8 @@ import (
 
 var regxStr = `Hash":"([^\"]+)"`
 var regxAlbum = `"album_id":([0-9]+)`
-var regexTitle = ` class="pc_temp_songname" title="([^"]+)" hidefocus="true"`
+var regexTitle = `<li class=" " title="([^"]+)" data-index="([0-9]+)">`
+var url = `http://trackermv.kugou.com/interface/index/cmd=100&hash={hash}&key={key}&pid=6&ext=mp4&ismp3=0`
 
 func main() {
 	resp, err := http.Get("https://www.kugou.com/yy/rank/home/1-8888.html?from=rank")
@@ -25,10 +24,11 @@ func main() {
 
 	content, err := ioutil.ReadAll(resp.Body)
 	myMaterial := string(content)
+	fmt.Println("content", myMaterial)
 
 	rex := regexp.MustCompile(regxStr)
 	result := rex.FindAllStringSubmatch(myMaterial, -1)
-	fmt.Println(result)
+	fmt.Println("result is :", result)
 	fmt.Println(len(result))
 
 	rexAlbum := regexp.MustCompile(regxAlbum)
@@ -54,10 +54,10 @@ var downUrl = `"play_url":"([^\"]+)"`
 func RequestUrl(url, name string) {
 	fmt.Println(url)
 	resp, err := http.Get(url)
-	defer resp.Body.Close()
 	if err != nil {
 		panic(err)
 	}
+	defer resp.Body.Close()
 
 	result, err := ioutil.ReadAll(resp.Body)
 

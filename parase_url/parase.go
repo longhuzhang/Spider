@@ -2,14 +2,10 @@ package parase_url
 
 import (
 	"Spider/public"
-	"Spider/public/error_operate"
-	"crypto/md5"
-	"encoding/json"
-	"fmt"
-	"io"
+	"Spider/util"
+	"errors"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,54 +20,58 @@ type Data struct {
 	TransStatus int    `json:"trans_status"`
 }
 
-type Respone struct {
+type Response struct {
 	Status  int    `json:"status"`
 	Errcode int    `json:"errcode"`
 	Error   string `json:"error_operate"`
 	Data    Data   `json:"data"`
 }
 
-func ParseId(id string) {
-	url := "http://visitor.fanxing.kugou.com/VServices/Video.OfflineVideoService.getVideoList/" + id + "-1-0-10/"
-	resContent, err := ParaseURL(url)
-	if err != nil {
-		panic(error_operate.NoticeError{"ParaseURL error"})
-	}
+//
+//func ParseId(id string) {
+//	url := "http://visitor.fanxing.kugou.com/VServices/Video.OfflineVideoService.getVideoList/" + id + "-1-0-10/"
+//	resContent, err := ParaseURL(url)
+//	if err != nil {
+//		panic(error_operate.NoticeError{"ParaseURL error"})
+//	}
+//
+//	JudgeForRespond(resContent)
+//
+//	//idRegex := regexp.MustCompile(`getVideoList(.*?)`)
+//	//myId := idRegex.FindAllStringSubmatch(resContent, -1)
+//	countMatch := regexp.MustCompile(`("count":(.*?)})`)
+//	getCount := countMatch.FindAllStringSubmatch(resContent, -1)
+//
+//	fmt.Println(getCount, len(getCount[0]))
+//	//fmt.Println(myId,len(myId[0]))
+//	count, err := strconv.Atoi(getCount[0][2])
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	ParasResponeData(resContent, id)
+//
+//	pageNum := count/10 + 1
+//	for i := 2; i < pageNum; i++ {
+//		page := strconv.Itoa(i)
+//		url = "http://visitor.fanxing.kugou.com/VServices/Video.OfflineVideoService.getVideoList/" + id + "-" + page + "-0-10/"
+//		fmt.Println(url)
+//		aim, err := ParaseURL(url)
+//		if err != nil {
+//			panic(err)
+//		}
+//		ParasResponeData(aim, id)
+//	}
+//
+//}
 
-	JudgeForRespond(resContent)
-
-	//idRegex := regexp.MustCompile(`getVideoList(.*?)`)
-	//myId := idRegex.FindAllStringSubmatch(resContent, -1)
-	countMatch := regexp.MustCompile(`("count":(.*?)})`)
-	getCount := countMatch.FindAllStringSubmatch(resContent, -1)
-
-	fmt.Println(getCount, len(getCount[0]))
-	//fmt.Println(myId,len(myId[0]))
-	count, err := strconv.Atoi(getCount[0][2])
-	if err != nil {
-		panic(err)
-	}
-
-	ParasResponeData(resContent, id)
-
-	pageNum := count/10 + 1
-	for i := 2; i < pageNum; i++ {
-		page := strconv.Itoa(i)
-		url = "http://visitor.fanxing.kugou.com/VServices/Video.OfflineVideoService.getVideoList/" + id + "-" + page + "-0-10/"
-		fmt.Println(url)
-		aim, err := ParaseURL(url)
-		if err != nil {
-			panic(err)
-		}
-		ParasResponeData(aim, id)
-	}
-
-}
-
-func ParaseURL(url string) (string, error) {
+func ParasURL(url string) (string, error) {
 	res, err := http.Get(url)
 	if err != nil {
-		panic(err)
+		return "", err
+	}
+	if res.StatusCode != http.StatusOK {
+		return "", errors.New("系统错误，错误码" + strconv.Itoa(res.StatusCode))
 	}
 
 	b, err := ioutil.ReadAll(res.Body)
@@ -85,105 +85,54 @@ func ParaseURL(url string) (string, error) {
 	return resContent, nil
 }
 
-func ParasResponeData(resContent string, id string) {
+func ParasResponseData(resContent string, id string, stop, proceed chan struct{}, errChan chan public.ErrorMessage) {
 	public.Cond.L.Lock()
+	defer public.Cond.L.Unlock()
 	title := regexp.MustCompile(`("title":"(.*?)")`)
 	actor := regexp.MustCompile(`("actor":"(.*?)")`)
-	hashl := regexp.MustCompile(`("hashValue":"(.*?)")`)
-	hashList := hashl.FindAllStringSubmatch(resContent, -1)
+	hashl := regexp.MustCompile(`("MvHash":"(.*?)")`)
+	download := regexp.MustCompile(`("downurl":"(.*?)")`)
 	titleList := title.FindAllStringSubmatch(resContent, -1)
 	actorList := actor.FindAllStringSubmatch(resContent, -1)
 
-	var myTitle public.MyTitle
-	var myActor public.MyActor
-
-	fmt.Println("the title is :", len(titleList), len(hashList))
-	fmt.Println("actor is:", actorList, len(actorList))
-	for key, v := range hashList {
-
+	//fmt.Println("actor is:", actorList, len(actorList))
+	for key, _ := range titleList {
 		select {
-		case i := <-public.MyChannel:
-			if i == 1 {
-				return
-			} else if i == 2 {
-				public.Cond.Wait()
-			}
+		case <-stop:
+			proceed <- struct{}{}
 		default:
 		}
-
-		theHash := v[2]
-		if strings.Contains(v[2], "|") {
-			split := strings.Split(v[2], "|")
-			theHash = split[0]
+		videoData, err := util.SearchVideoByName(titleList[key][0])
+		if err != nil {
+			util.SendError(errChan, err)
+			continue
+		}
+		videoHash := hashl.FindAllStringSubmatch(videoData, -1)
+		if len(videoHash) < 1 {
+			util.SendError(errChan, errors.New("未匹配到视频哈希"))
+			continue
 		}
 
-		//md5加密
-		hashValue := "hash" + theHash + "pid6kugou_video"
-		a := md5.Sum([]byte(hashValue))
-		value := fmt.Sprintf("%x", a)
+		//log.Println("video hash:",videoHash)
+		videoInfo, err := util.ObtainVideoDownUrl(videoHash[0][2])
+		if err != nil {
+			util.SendError(errChan, err)
+			continue
+		}
+		//log.Println("video info : ",videoInfo)
+		videoDown := download.FindAllStringSubmatch(videoInfo, -1)
+		if len(videoDown) < 1 {
+			util.SendError(errChan, err)
+			continue
+		}
 
-		fmt.Println(v[2])
-
-		url := "http://tracker.v.kugou.com/video/query?pid=6&sign=" + value + "&hash=" + theHash
-
-		json.Unmarshal([]byte("{"+titleList[key][0]+"}"), &myTitle)
-		json.Unmarshal([]byte("{"+actorList[key][0]+"}"), &myActor)
-
-		getVideoAndSave(GetVedioPlayAddress(url), id, myTitle.Title, myActor.Actor)
-		fmt.Println("url:", url)
+		downurl := strings.Replace(videoDown[0][2], `\`, "", -1)
+		//go func(key int) {
+		err = util.DownVideo(downurl, id, titleList[key][2], actorList[key][2])
+		if err != nil {
+			util.SendError(errChan, err)
+		}
+		util.SendError(errChan, errors.New("成功下载视频："+titleList[key][2]))
+		//}(key)
 	}
-	public.Cond.L.Unlock()
-}
-
-func GetVedioPlayAddress(utl string) string {
-	res, err := http.Get(utl)
-	if err != nil {
-		panic(err)
-	}
-
-	b, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		panic(err)
-	}
-	defer func() {
-		res.Body.Close()
-	}()
-	var resContent Respone
-	fmt.Println(string(b))
-	err = json.Unmarshal(b, &resContent)
-	if err != nil {
-		panic(err)
-	}
-	return resContent.Data.Url
-}
-
-//获取视频并保存到本地
-func getVideoAndSave(url, id, title, actor string) {
-	//url := "http://fx.v.kugou.com/G127/M07/0B/17/vw0DAFx6mdiAP82TAXAgmN91YYw320.mp4"
-	res, err := http.Get(url)
-	if err != nil {
-		panic(err)
-	}
-
-	path := fmt.Sprintf("download/%s", id)
-	_, err = os.Stat(path)
-	fmt.Println(path, err)
-	if err != nil {
-		os.MkdirAll(path, os.ModePerm)
-	}
-	myName := title + "_" + actor + ".mp4"
-	fmt.Println("myName", myName)
-	name := fmt.Sprintf("download/%s/%s", id, myName)
-	//如果文件已经存在就跳过
-	_, err = os.Stat(name)
-	if err == nil {
-		return
-	}
-
-	f, err := os.Create(name)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	io.Copy(f, res.Body)
 }

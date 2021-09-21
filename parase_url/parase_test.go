@@ -1,7 +1,7 @@
 package parase_url
 
 import (
-	"VideoSpider/public"
+	"Spider/public"
 	"encoding/json"
 	"fmt"
 	"strconv"
