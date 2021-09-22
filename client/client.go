@@ -23,8 +23,7 @@ func InitClient() {
 	window.Resize(fyne.NewSize(500, 400))
 	window.CenterOnScreen()
 
-	inputText := widget.NewMultiLineEntry()
-	inputText.SetPlaceHolder("Enter code...")
+	inputText := widget.NewEntry()
 	inputText.Resize(fyne.NewSize(500, 200))
 
 	startButton := widget.NewButton("start", func() {
@@ -75,10 +74,14 @@ func InitClient() {
 		}
 	}()
 
-	operateContain := container.NewGridWithColumns(4, dynamicButton, soarButton, dayButton, weekButton)
-
+	operateContain := container.NewGridWithColumns(2, dynamicButton, soarButton)
 	buttonContain := container.NewGridWithColumns(3, startButton, stopButton, quitButton)
-	content := container.NewVBox(operateContain, inputText, buttonContain, logText)
+
+	timeLab := widget.NewLabel("输入日期(20210919/202109):")
+
+	inputContain := container.NewGridWithColumns(4, timeLab, inputText, dayButton, weekButton)
+
+	content := container.NewVBox(operateContain, inputContain, buttonContain, logText)
 
 	window.SetContent(content)
 	window.ShowAndRun()
